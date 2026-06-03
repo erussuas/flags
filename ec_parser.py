@@ -298,56 +298,80 @@ def parse_report18(path: str, setup_df: pd.DataFrame | None = None) -> pd.DataFr
 # ══════════════════════════════════════════════════════════════════════════════
 # REPORT-27 PARSER  (bill flags)
 # ══════════════════════════════════════════════════════════════════════════════
+def _blank_record() -> dict:
+    """Return a fresh, fully-initialised flag record."""
+    return {
+        "account": "", "address": "", "vendor": "", "bill_id": "",
+        "billing_period": "", "cost": 0.0, "status": "",
+        "flag_issues": "", "assigned_to": "", "cost_recovery": 0.0,
+        "flagged_date": None, "resolved_date": None,
+        "num_issues": 0, "resolvers": [], "flag_events": [],
+    }
+
+
 def parse_report27_text(text: str) -> pd.DataFrame:
     lines = text.split("\n")
-    records, current = [], {}
+    records = []
+    current = _blank_record()
+    in_record = False   # guard: skip lines before first Account: block
 
     for line in lines:
         stripped = line.strip()
 
+        # ── New account block ─────────────────────────────────────────────────
         if re.search(r'Account:\s{2,}', stripped):
-            if current.get("bill_id"):
+            if in_record and current.get("bill_id"):
                 records.append(current)
-            current = {
-                "account":"","address":"","vendor":"","bill_id":"",
-                "billing_period":"","cost":0.0,"status":"",
-                "flag_issues":"","assigned_to":"","cost_recovery":0.0,
-                "flagged_date":None,"resolved_date":None,
-                "num_issues":0,"resolvers":[],"flag_events":[],
-            }
-            current["account"] = re.sub(r'Account:\s+','',stripped).strip()
+            current = _blank_record()
+            current["account"] = re.sub(r'Account:\s+', '', stripped).strip()
+            in_record = True
             continue
 
-        if (current.get("account") and not current.get("address")
-                and not current.get("vendor") and stripped
+        if not in_record:
+            continue
+
+        # ── Address ───────────────────────────────────────────────────────────
+        if (current["account"] and not current["address"]
+                and not current["vendor"] and stripped
                 and "Vendor:" not in stripped
                 and not re.match(r'\d{6}', stripped)):
-            current["address"] = stripped; continue
-
-        if "Vendor:" in stripped:
-            vm = re.search(r'Vendor:\s+(.+?)(?:\s*\[|$)', stripped)
-            if vm: current["vendor"] = vm.group(1).strip()
+            current["address"] = stripped
             continue
 
+        # ── Vendor ────────────────────────────────────────────────────────────
+        if "Vendor:" in stripped:
+            vm = re.search(r'Vendor:\s+(.+?)(?:\s*\[|$)', stripped)
+            if vm:
+                current["vendor"] = vm.group(1).strip()
+            continue
+
+        # ── Bill header row ───────────────────────────────────────────────────
         if re.match(r'\d{6}', stripped) and "Billing Period" not in stripped:
             parts = stripped.split()
             if parts and parts[0].isdigit() and len(parts[0]) == 6:
                 current["bill_id"] = parts[0]
                 cm = re.search(r'(\d[\d,]*\.\d{4})\s*$', line.strip())
-                if cm: current["cost"] = float(cm.group(1).replace(",",""))
+                if cm:
+                    current["cost"] = float(cm.group(1).replace(",", ""))
                 pm = re.search(r'\t(20\d{4})\t', line)
-                if pm: current["billing_period"] = pm.group(1)
+                if pm:
+                    current["billing_period"] = pm.group(1)
             continue
 
+        # ── Flag Type line ────────────────────────────────────────────────────
         if "Flag Type:" in stripped:
             sm = re.search(r'Flag Status:\s*(\w+)', stripped)
-            if sm: current["status"] = sm.group(1)
+            if sm:
+                current["status"] = sm.group(1)
             am = re.search(r'Assigned to:\s*\t+(.+?)(?:\t{4,}|Cost Recovery)', stripped)
-            if am: current["assigned_to"] = am.group(1).strip()
+            if am:
+                current["assigned_to"] = am.group(1).strip()
             rm = re.search(r'Cost Recovery:\s*\$([0-9,.]+)', stripped)
-            if rm: current["cost_recovery"] = float(rm.group(1).replace(",",""))
+            if rm:
+                current["cost_recovery"] = float(rm.group(1).replace(",", ""))
             continue
 
+        # ── Flag Issue line ───────────────────────────────────────────────────
         if stripped.startswith("Flag Issue:"):
             im = re.search(r'Flag Issue:\s*(.+?)(?:\t{2,}|$)', stripped)
             if im:
@@ -356,18 +380,23 @@ def parse_report27_text(text: str) -> pd.DataFrame:
                 current["num_issues"]  = len([x for x in raw.split(",") if x.strip()])
             continue
 
+        # ── Timeline events ───────────────────────────────────────────────────
         if re.match(r'\d{2}/\d{2}/\d{4}', stripped):
             dtm = re.match(r'(\d{2}/\d{2}/\d{4} \d{2}:\d{2} (?:AM|PM))', stripped)
             if dtm:
-                try:    dt = datetime.strptime(dtm.group(1), "%m/%d/%Y %I:%M %p")
-                except: dt = None
+                try:
+                    dt = datetime.strptime(dtm.group(1), "%m/%d/%Y %I:%M %p")
+                except ValueError:
+                    dt = None
                 if "Bill flagged" in stripped or "flagged as Audit" in stripped:
-                    if not current.get("flagged_date") and dt:
+                    if not current["flagged_date"] and dt:
                         current["flagged_date"] = dt
                 elif "Flag resolved" in stripped and dt:
                     current["resolved_date"] = dt
-                    am2 = re.search(r'\d{2}:\d{2} (?:AM|PM) ([\w.@]+) Flag resolved', stripped)
-                    current["resolvers"].append(am2.group(1) if am2 else "SYSTEM")
+                    am2 = re.search(
+                        r'\d{2}:\d{2} (?:AM|PM) ([\w.@]+) Flag resolved', stripped)
+                    current["resolvers"].append(
+                        am2.group(1) if am2 else "SYSTEM")
 
     if current.get("bill_id"):
         records.append(current)
