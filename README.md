@@ -1,120 +1,65 @@
 # EnergyCAP Bill Flag Analyzer
 
-A Streamlit app for analyzing **EnergyCAP Report-27 (Bill Flags)** exports. Upload one or more `.xlsx` files and get an instant interactive dashboard with flag breakdowns, vendor analysis, resolution tracking, and actionable next steps mapped to EnergyCAP's audit rule documentation.
+Streamlit app for analyzing EnergyCAP flag exports with GHG emissions prioritization.
 
----
+## Files
+
+| File | Purpose |
+|---|---|
+| `app.py` | Main Streamlit app |
+| `parser.py` | Report parsers + GHG conversion logic |
+| `requirements.txt` | Python dependencies |
+
+## Supported Uploads
+
+| Report | Required? | Purpose |
+|---|---|---|
+| **Report-27** (Bill Flags) | ✅ Required | Flag data, vendors, assignees, status |
+| **Report-18** (Bill Line Items) | Recommended | GHG usage quantities per bill |
+| **Report-03** (Setup Report) | Recommended | Authoritative commodity classification |
+
+- **Multiple Report-27 and Report-18 files** can be uploaded at once and are merged automatically
+- **Report-03** is a master data file — upload once, covers all periods
+
+## How to Export from EnergyCAP
+
+**Report-27:** Bills → Menu (≡) → Report-27 Bill Flags → Export to Excel
+
+**Report-18:** Bills → Report-18 Bill Line Item Report → Filter: Line Item Type = Use → Export to Excel
+
+**Report-03:** All Reports → Setup Report for Accounts, Vendors, Cost Centers, Meters, and Sites (Excel only)
 
 ## Features
 
-| Tab | What you get |
-|-----|-------------|
-| **Overview** | KPI cards, flag frequency chart, billing period trend, category/priority/status donuts, resolution time histogram |
-| **Flag Analysis** | Drill into any flag type — vendors affected, assignee workload, audit rule explanation |
-| **Vendors** | Vendor league table by flag count and cost, per-vendor flag profile |
-| **Action Guide** | Every flag type mapped to a specific recommended action + EnergyCAP navigation path. Systemic insights auto-detected from your data |
-| **Bill Detail** | Searchable/filterable bill table, expandable per-bill flag explanations, CSV export |
+- 📊 **Overview** — KPI metrics, flag frequency, billing period trends, resolution time
+- ⚑ **Flag Analysis** — Multi-filter panel (issue, vendor, assignee, status, priority, GHG category) with clickable drill-down charts
+- 🏢 **Vendors** — Flag and cost concentration by vendor, clickable drill-down
+- 🌿 **GHG Priority Queue** — Bills ranked by emissions impact score (usage × flag risk × unresolved multiplier); user-selectable display unit (kWh/MWh/GJ/MMBtu/THERM)
+- ✅ **Action Guide** — Every flag type mapped to specific remediation steps with EnergyCAP navigation paths
+- 📋 **Bill Detail** — Searchable/filterable bill table with per-issue guidance
 
----
+## Performance
 
-## Quick Start
+All heavy parsing is wrapped in `@st.cache_data` — files are only re-parsed when the uploaded content changes. Filtering and drill-down interactions are instant.
 
-### Run locally
+## GHG Commodity Classification
+
+When Report-03 is uploaded, commodities are classified authoritatively from EnergyCAP's own meter master data (87% coverage in a typical portfolio). The remaining 13% fall back to caption-based heuristics.
+
+**GHG categories tracked:** Electricity (Scope 2), Natural Gas (Scope 1), LPG/Propane (Scope 1), Biomass (Scope 1 biogenic), District Heat/Steam (Scope 2), Diesel/Fuel Oil (Scope 1), Gasoline, Aviation Fuel, Coal
+
+**Unit harmonization:** kWh, MWh, GJ, MJ, MMBtu, THERM, DKTHM, MCF, CCF, CF, m³ are all converted to kWh internally. Users select their preferred display unit.
+
+## Run Locally
 
 ```bash
-# 1. Clone the repo
-git clone https://github.com/YOUR_ORG/energycap-flag-analyzer.git
-cd energycap-flag-analyzer
-
-# 2. Create a virtual environment (recommended)
-python -m venv .venv
-source .venv/bin/activate      # Windows: .venv\Scripts\activate
-
-# 3. Install dependencies
 pip install -r requirements.txt
-
-# 4. Run
 streamlit run app.py
 ```
 
-Then open http://localhost:8501 in your browser.
+## Deploy to Streamlit Community Cloud
 
-### Deploy to Streamlit Community Cloud
-
-1. Push this repo to GitHub (public or private).
-2. Go to [share.streamlit.io](https://share.streamlit.io) and click **New app**.
-3. Select your repo, branch `main`, and set **Main file path** to `app.py`.
-4. Click **Deploy**. No secrets or environment variables needed.
-
----
-
-## How to Export Report-27 from EnergyCAP
-
-1. In EnergyCAP, go to the **Bills** module.
-2. Open the module menu (≡) and select **Report-27 Bill Flags**.
-3. Set your date filters (Bill Entry Date range is recommended).
-4. Export to **Excel (.xlsx)**.
-5. Upload the file in the app sidebar.
-
-You can upload **multiple files** (e.g., different date ranges) — the app combines and deduplicates them automatically.
-
----
-
-## Supported Flag Types
-
-The app includes built-in guidance for all standard EnergyCAP audit flag types:
-
-**Import / Configuration**
-- Rate schedule mismatch
-- Serial number mismatch
-- Conflicting use units
-
-**Duplicate / Overlap**
-- Duplicate bill
-- Overlapping bill
-- Multiple bills in period
-
-**Statistical Outlier** (uses EnergyCAP quadratic regression)
-- Abnormal cost
-- Abnormal use
-- Abnormal demand
-- High use per day
-- High cost per day
-
-**Date / Timeline**
-- Gap between bills
-- Shorter or longer bill
-- Late statement date
-- Late due date
-- Unexpected billing period
-
-**Line Item Review**
-- Flagged line item type found
-- Flagged line item description found
-
----
-
-## Requirements
-
-```
-streamlit>=1.32.0
-pandas>=2.0.0
-plotly>=5.18.0
-openpyxl>=3.1.0
-xlrd>=2.0.1
-```
-
-Python 3.9+ recommended.
-
-> **Note:** The app uses the `extract-text` CLI tool when running on Streamlit Cloud (pre-installed in the Streamlit environment). When running locally, it falls back to `openpyxl` for `.xlsx` parsing. If `extract-text` is not available locally, the app will use the openpyxl fallback automatically.
-
----
-
-## Local Parsing (no extract-text)
-
-If you're running locally and don't have `extract-text`, the app automatically falls back to reading the Excel file with `openpyxl`. The Report-27 layout is parsed by reading merged cell patterns and tab-separated content from each sheet.
-
----
-
-## License
-
-MIT — free to use, modify, and distribute.
+1. Push all three files to a GitHub repo
+2. Go to share.streamlit.io → New app
+3. Set Main file path to `app.py`
+4. Deploy — no secrets or environment variables needed
