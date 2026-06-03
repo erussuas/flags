@@ -6,7 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from parser import (
+from ec_parser import (
     FLAG_META, PRIORITY_ORDER, PRIORITY_COLOR, CATEGORY_COLOR,
     GHG_COMMODITIES, GHG_SCOPE, DISPLAY_UNITS, FROM_KWH,
     from_kwh, kwh,
@@ -62,7 +62,7 @@ def cached_load_report03(file_bytes: bytes) -> pd.DataFrame:
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f:
         f.write(file_bytes); path = f.name
     try:
-        from parser import parse_report03
+        from ec_parser import parse_report03
         return parse_report03(path)
     finally:
         os.unlink(path)
@@ -77,12 +77,12 @@ def cached_load_report18(file_bytes: bytes, setup_bytes: bytes | None) -> pd.Dat
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f:
             f.write(setup_bytes); path03 = f.name
         try:
-            from parser import parse_report03
+            from ec_parser import parse_report03
             setup_df = parse_report03(path03)
         finally:
             os.unlink(path03)
     try:
-        from parser import parse_report18
+        from ec_parser import parse_report18
         return parse_report18(path18, setup_df)
     finally:
         os.unlink(path18)
@@ -90,7 +90,7 @@ def cached_load_report18(file_bytes: bytes, setup_bytes: bytes | None) -> pd.Dat
 @st.cache_data(show_spinner=False)
 def cached_load_report27(file_bytes: bytes) -> pd.DataFrame:
     import tempfile, os, shutil, subprocess
-    from parser import parse_report27_text
+    from ec_parser import parse_report27_text
     from openpyxl import load_workbook
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f:
         f.write(file_bytes); path = f.name
