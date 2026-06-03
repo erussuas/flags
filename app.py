@@ -103,8 +103,13 @@ def cached_load_report27(file_bytes: bytes) -> pd.DataFrame:
             wb = load_workbook(path, data_only=True)
             lines = []
             for ws in wb.worksheets:
+                # Skip metadata/overview sheets
+                if ws.title.lower() in {"report overview", "overview"}:
+                    continue
                 for row in ws.iter_rows(values_only=True):
-                    lines.append("\t"+"".join(str(c) if c is not None else "" for c in row))
+                    # Use tab separator so "Account:		Name" is preserved correctly
+                    cells = [str(c) if c is not None else "" for c in row]
+                    lines.append("\t".join(cells))
             text = "\n".join(lines)
         return parse_report27_text(text)
     finally:
