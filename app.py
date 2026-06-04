@@ -11,7 +11,7 @@ import streamlit as st
 from ec_parser import (
     FLAG_META, PRIORITY_ORDER, PRIORITY_COLOR, CATEGORY_COLOR,
     GHG_COMMODITIES, GHG_SCOPE, DISPLAY_UNITS, FROM_KWH,
-    from_kwh, kwh,
+    from_kwh,
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -23,78 +23,40 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.markdown("""
-<style>
-  .metric-card{background:#f8f9fa;border-radius:10px;padding:1rem 1.25rem;border:1px solid #e9ecef;}
-  .metric-label{font-size:12px;color:#6c757d;margin:0 0 4px 0;}
-  .metric-value{font-size:26px;font-weight:600;color:#212529;margin:0;}
-  .metric-sub{font-size:12px;color:#6c757d;margin:4px 0 0 0;}
-  .action-card{border-left:4px solid;border-radius:6px;padding:.75rem 1rem;margin-bottom:.6rem;background:#fafafa;}
-  .action-high{border-color:#dc3545;background:#fff5f5;}
-  .action-medium{border-color:#fd7e14;background:#fff8f0;}
-  .action-low{border-color:#198754;background:#f0fff4;}
-  .action-info{border-color:#0d6efd;background:#f0f6ff;}
-  .bill-card{background:#fff;border:1px solid #dee2e6;border-radius:8px;padding:.85rem 1rem;margin-bottom:.5rem;}
-  .bill-card-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;}
-  .bill-id{font-weight:600;font-size:14px;color:#212529;}
-  .bill-cost{font-weight:600;font-size:15px;color:#0d6efd;}
-  .bill-meta{font-size:12px;color:#6c757d;margin:2px 0;}
-  .flag-badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:12px;font-weight:500;margin:2px;}
-  .badge-red{background:#ffe0e0;color:#c0392b;} .badge-orange{background:#fff0d6;color:#9b5504;}
-  .badge-green{background:#e0f7ea;color:#1a7a4a;} .badge-blue{background:#ddeeff;color:#1a4fa0;}
-  .badge-gray{background:#e9ecef;color:#495057;} .badge-purple{background:#f0e8ff;color:#5a1fa0;}
-  .drill-banner{background:#e8f0fe;border:1px solid #4285f4;border-radius:8px;
-    padding:.6rem 1rem;margin-bottom:1rem;display:flex;align-items:center;justify-content:space-between;}
-  .drill-label{font-size:13px;font-weight:500;color:#1a56db;}
-  .upload-ok{color:#198754;font-size:12px;font-weight:500;}
-  .upload-warn{color:#fd7e14;font-size:12px;font-weight:500;}
-</style>
-""", unsafe_allow_html=True)
-
+# No custom CSS — using native Streamlit components only
 
 # ══════════════════════════════════════════════════════════════════════════════
-# CACHING — each loader is cached independently by file content hash
-# No nested @st.cache_data calls (Streamlit limitation)
+# CACHING
 # ══════════════════════════════════════════════════════════════════════════════
 def _fhash(b):
     return hashlib.md5(b).hexdigest()
 
 @st.cache_data(show_spinner=False)
 def cached_parse_r03(file_hash_key, file_bytes):
-    """Cached Report-03 parser. file_hash_key ensures cache invalidation."""
     import tempfile, os
     from ec_parser import parse_report03
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f:
         f.write(file_bytes); path = f.name
-    try:
-        return parse_report03(path)
-    finally:
-        os.unlink(path)
+    try:    return parse_report03(path)
+    finally: os.unlink(path)
 
 @st.cache_data(show_spinner=False)
 def cached_parse_r18(file_hash_key, file_bytes, setup_hash_key, setup_bytes):
-    """Cached Report-18 parser."""
     import tempfile, os
     from ec_parser import parse_report18, parse_report03
     with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f:
         f.write(file_bytes); path18 = f.name
     setup_df = None
-    path03 = None
     if setup_bytes:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as f:
             f.write(setup_bytes); path03 = f.name
-        try:
-            setup_df = parse_report03(path03)
-        finally:
-            os.unlink(path03)
-    try:
-        return parse_report18(path18, setup_df)
-    finally:
-        os.unlink(path18)
+        try:    setup_df = parse_report03(path03)
+        finally: os.unlink(path03)
+    try:    return parse_report18(path18, setup_df)
+    finally: os.unlink(path18)
 
 @st.cache_data(show_spinner=False)
 def cached_parse_r27(file_hash_key, file_bytes):
-    """Cached Report-27 parser. Uses openpyxl fallback on Streamlit Cloud."""
     import tempfile, os, shutil, subprocess
     from openpyxl import load_workbook
     from ec_parser import parse_report27_text
@@ -102,12 +64,9 @@ def cached_parse_r27(file_hash_key, file_bytes):
         f.write(file_bytes); path = f.name
     try:
         text = ""
-        # Try extract-text first (available locally)
         if shutil.which("extract-text"):
-            r = subprocess.run(
-                ["extract-text", path], capture_output=True, text=True, timeout=60)
+            r = subprocess.run(["extract-text", path], capture_output=True, text=True, timeout=60)
             text = r.stdout
-        # Always fall back to openpyxl if extract-text unavailable or produced nothing
         if not text.strip():
             wb = load_workbook(path, data_only=True)
             lines = []
@@ -115,7 +74,6 @@ def cached_parse_r27(file_hash_key, file_bytes):
                 if ws.title.lower() in {"report overview", "overview"}:
                     continue
                 for row in ws.iter_rows(values_only=True):
-                    # Tab-join preserves cell boundaries so regex patterns work
                     cells = [str(c) if c is not None else "" for c in row]
                     lines.append("\t".join(cells))
             text = "\n".join(lines)
@@ -123,16 +81,15 @@ def cached_parse_r27(file_hash_key, file_bytes):
     finally:
         os.unlink(path)
 
-
 # ══════════════════════════════════════════════════════════════════════════════
-# HELPERS
+# CONSTANTS & HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 PT = dict(font_family="Inter,system-ui,sans-serif",
           paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
 
 SORT_OPTS = ["Cost (high→low)","Cost (low→high)",
              "Usage kWh (high→low)","Days to resolve (longest)","Bill ID","Vendor A→Z"]
-SORT_MAP  = {
+SORT_MAP = {
     "Cost (high→low)":           ("cost", False),
     "Cost (low→high)":           ("cost", True),
     "Usage kWh (high→low)":      ("total_kwh_equivalent", False),
@@ -141,13 +98,18 @@ SORT_MAP  = {
     "Vendor A→Z":                ("vendor", True),
 }
 
-def metric_html(label, value, sub="", color="#212529"):
-    return (f'<div class="metric-card"><p class="metric-label">{label}</p>'
-            f'<p class="metric-value" style="color:{color}">{value}</p>'
-            f'<p class="metric-sub">{sub}</p></div>')
+ISSUE_PRIORITY_COLOR = {"High":"red","Medium":"orange","Low":"green"}
 
-def badge(text, color="gray"):
-    return f'<span class="flag-badge badge-{color}">{text}</span>'
+def issue_badges(issues_list):
+    """Render flag issue badges using native st.badge — no HTML."""
+    if not issues_list:
+        return
+    cols = st.columns(min(len(issues_list), 4))
+    for i, issue in enumerate(issues_list):
+        priority = FLAG_META.get(issue, {}).get("priority", "Medium")
+        color = ISSUE_PRIORITY_COLOR.get(priority, "gray")
+        with cols[i % 4]:
+            st.badge(issue, color=color)
 
 def priority_icon(p):
     return {"High":"🔴","Medium":"🟠","Low":"🟢"}.get(p,"⚪")
@@ -193,49 +155,52 @@ def extract_click(ev):
     return pts[0].get("y") or pts[0].get("x") or None
 
 def render_bill_cards(sub_df, display_unit="kWh", max_cards=50):
-    has_usage = "total_kwh_equivalent" in sub_df.columns
+    """Render bill cards using only native Streamlit components."""
     if sub_df.empty:
         st.info("No bills match this selection.")
         return
-    st.caption(f"Showing {min(len(sub_df),max_cards)} of {len(sub_df)} bills")
+    st.caption(f"Showing {min(len(sub_df), max_cards)} of {len(sub_df)} bills")
     for _, row in sub_df.head(max_cards).iterrows():
-        p  = row.get("primary_priority","Medium")
-        bc = {"High":"red","Medium":"orange","Low":"green"}.get(p,"blue")
-        sc = "#198754" if row["status"]=="Resolved" else "#dc3545"
-        days = f"{int(row['days_to_resolve'])}d" if pd.notna(row.get("days_to_resolve")) else "—"
-        resolver = row["resolvers"][-1] if row["resolvers"] else "—"
-        usage_str = ""
-        if has_usage and pd.notna(row.get("total_kwh_equivalent")):
-            val = from_kwh(float(row["total_kwh_equivalent"]), display_unit)
-            cat = row.get("ghg_category","")
-            scope = row.get("ghg_scope","")
-            usage_str = (f"&nbsp;·&nbsp; <strong>{val:,.1f} {display_unit}</strong>"
-                         f"{' · '+cat if cat else ''}{' ('+scope+')' if scope else ''}")
-        badges = " ".join(badge(i, bc) for i in row["issues_list"])
-        st.markdown(f"""<div class="bill-card">
-          <div class="bill-card-header">
-            <span class="bill-id">Bill {row['bill_id']} &nbsp;·&nbsp; {row['vendor']}</span>
-            <span class="bill-cost">${row['cost']:,.2f}</span>
-          </div>
-          <div class="bill-meta">
-            {row.get('account','')} &nbsp;·&nbsp;
-            Period: {row.get('billing_period_label','—')} &nbsp;·&nbsp;
-            Assigned: {row.get('assigned_to','—')} &nbsp;·&nbsp;
-            Resolved: {resolver} &nbsp;·&nbsp;
-            Days: {days} &nbsp;·&nbsp;
-            <span style="color:{sc};font-weight:500">{row['status']}</span>
-            {usage_str}
-          </div>
-          <div style="margin-top:5px">{badges}</div>
-        </div>""", unsafe_allow_html=True)
+        priority  = row.get("primary_priority","Medium")
+        status_ok = row["status"] == "Resolved"
+        days      = f"{int(row['days_to_resolve'])}d" if pd.notna(row.get("days_to_resolve")) else "—"
+        resolver  = row["resolvers"][-1] if row["resolvers"] else "—"
+
+        with st.container(border=True):
+            # Header row
+            h1, h2 = st.columns([4,1])
+            with h1:
+                st.markdown(f"**Bill {row['bill_id']}** &nbsp; {row['vendor']}")
+            with h2:
+                st.markdown(f"**${row['cost']:,.2f}**")
+
+            # Meta row
+            m_cols = st.columns(4)
+            m_cols[0].caption(f"📅 {row.get('billing_period_label','—')}")
+            m_cols[1].caption(f"👤 {row.get('assigned_to','—')}")
+            m_cols[2].caption(f"✓ {resolver} · {days}")
+            status_label = "✅ Resolved" if status_ok else "🔴 Unresolved"
+            m_cols[3].caption(status_label)
+
+            # Usage row (if available)
+            if pd.notna(row.get("total_kwh_equivalent")):
+                val = from_kwh(float(row["total_kwh_equivalent"]), display_unit)
+                cat = row.get("ghg_category","")
+                scope = row.get("ghg_scope","")
+                usage_parts = [f"⚡ {val:,.1f} {display_unit}"]
+                if cat:   usage_parts.append(cat)
+                if scope: usage_parts.append(f"({scope})")
+                st.caption(" · ".join(usage_parts))
+
+            # Flag issue badges
+            issue_badges(row["issues_list"])
 
 def drill_banner(label, key):
     c1, c2 = st.columns([11,1])
     with c1:
-        st.markdown(f'<div class="drill-banner"><span class="drill-label">'
-                    f'🔍 Drill-down: <strong>{label}</strong></span></div>',
-                    unsafe_allow_html=True)
+        st.info(f"🔍 Drill-down active: **{label}**")
     with c2:
+        st.write("")
         if st.button("✕", key=f"clr_{key}"):
             st.session_state[key] = None
             st.rerun()
@@ -268,6 +233,20 @@ def bill_detail_panel(row):
                 st.markdown(f"**Action:** {m['action']}")
                 st.markdown(f"**In EnergyCAP:** {m['in_energycap']}")
 
+def action_card(priority, title, cause, action, in_energycap,
+                count=None, top_vendor=None, unresolved=0, key=None):
+    """Render an action guide card using native Streamlit components."""
+    icon = priority_icon(priority)
+    header_parts = [f"{icon} **{title}**"]
+    if count:      header_parts.append(f"· {count} occurrence{'s' if count>1 else ''}")
+    if top_vendor: header_parts.append(f"· Top vendor: {top_vendor}")
+    if unresolved: header_parts.append(f"· ⚠️ {unresolved} unresolved")
+
+    with st.container(border=True):
+        st.markdown(" ".join(header_parts))
+        st.caption(f"*{cause}*")
+        st.markdown(f"**Action:** {action}")
+        st.caption(f"**In EnergyCAP:** {in_energycap}")
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SESSION STATE
@@ -285,7 +264,7 @@ for _k,_v in _SS_DEFAULTS.items():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR — UPLOAD
+# SIDEBAR
 # ══════════════════════════════════════════════════════════════════════════════
 with st.sidebar:
     st.title("⚑ Bill Flag Analyzer")
@@ -300,8 +279,7 @@ with st.sidebar:
             help="Bills → Menu (≡) → Report-27 Bill Flags → Export to Excel")
         if r27_files:
             for f in r27_files:
-                st.markdown(f'<span class="upload-ok">✓ {f.name}</span>',
-                            unsafe_allow_html=True)
+                st.success(f"✓ {f.name}", icon="📄")
 
     with st.expander("📂 Report-18 — Bill Line Items (optional)", expanded=True):
         r18_files = st.file_uploader(
@@ -310,28 +288,22 @@ with st.sidebar:
             help="Bills → Report-18 Bill Line Item Report, filter Line Type = Use")
         if r18_files:
             for f in r18_files:
-                st.markdown(f'<span class="upload-ok">✓ {f.name}</span>',
-                            unsafe_allow_html=True)
+                st.success(f"✓ {f.name}", icon="📄")
         else:
-            st.markdown('<span class="upload-warn">ⓘ Without Report-18, GHG data unavailable</span>',
-                        unsafe_allow_html=True)
+            st.warning("Without Report-18, GHG data unavailable", icon="ℹ️")
 
     with st.expander("📂 Report-03 — Setup / Master Data (recommended)", expanded=True):
         r03_file = st.file_uploader(
             "Report-03 Setup Report", type=["xlsx"],
             accept_multiple_files=False, key="r03_upload",
-            help="All Reports → Setup Report for Accounts, Vendors, Cost Centers, Meters, Sites (Excel only)")
+            help="All Reports → Setup Report for Accounts, Vendors, Cost Centers, Meters, Sites")
         if r03_file:
-            st.markdown(f'<span class="upload-ok">✓ {r03_file.name}</span>',
-                        unsafe_allow_html=True)
+            st.success(f"✓ {r03_file.name}", icon="📄")
         else:
-            st.markdown('<span class="upload-warn">ⓘ Without Report-03, commodity uses caption heuristics</span>',
-                        unsafe_allow_html=True)
+            st.warning("Without Report-03, commodity uses caption heuristics", icon="ℹ️")
 
     st.divider()
     st.markdown("### Global Filters")
-
-    # Populated after data loads
     df_all_ss = st.session_state.get("df_master", pd.DataFrame())
     if not df_all_ss.empty:
         _all_v = sorted(df_all_ss["vendor"].unique())
@@ -351,8 +323,6 @@ with st.sidebar:
 
 # ══════════════════════════════════════════════════════════════════════════════
 # LOAD & MERGE DATA
-# Each file is parsed independently with its own cache key (md5 of bytes).
-# No nested @st.cache_data calls — results merged here in regular Python.
 # ══════════════════════════════════════════════════════════════════════════════
 if not r27_files:
     st.title("EnergyCAP Bill Flag Analyzer")
@@ -365,19 +335,16 @@ if not r27_files:
     )
     st.stop()
 
-# Read all file bytes once (UploadedFile can only be read once)
 r27_bytes_list = [f.read() for f in r27_files]
 r18_bytes_list = [f.read() for f in r18_files] if r18_files else []
 r03_bytes      = r03_file.read() if r03_file else None
 
 with st.spinner("Parsing files… (cached — only re-runs when files change)"):
-    # Report-03 (master data)
     df_setup = pd.DataFrame()
     r03_hash = _fhash(r03_bytes) if r03_bytes else ""
     if r03_bytes:
         df_setup = cached_parse_r03(r03_hash, r03_bytes)
 
-    # Report-27 files — each parsed independently and then concatenated
     r27_frames = []
     for b in r27_bytes_list:
         parsed = cached_parse_r27(_fhash(b), b)
@@ -386,7 +353,6 @@ with st.spinner("Parsing files… (cached — only re-runs when files change)"):
     df27 = (pd.concat(r27_frames, ignore_index=True).drop_duplicates("bill_id")
             if r27_frames else pd.DataFrame())
 
-    # Report-18 files — each parsed independently
     r18_frames = []
     for b in r18_bytes_list:
         parsed = cached_parse_r18(_fhash(b), b, r03_hash, r03_bytes)
@@ -395,7 +361,6 @@ with st.spinner("Parsing files… (cached — only re-runs when files change)"):
     df18 = (pd.concat(r18_frames, ignore_index=True).drop_duplicates("bill_id")
             if r18_frames else pd.DataFrame())
 
-    # Join R27 + R18 on bill_id
     if not df27.empty and not df18.empty:
         df_master = df27.merge(df18, on="bill_id", how="left")
     else:
@@ -404,19 +369,15 @@ with st.spinner("Parsing files… (cached — only re-runs when files change)"):
 st.session_state.df_master = df_master
 
 if df_master.empty:
-    st.warning(
-        "No bill records found in the uploaded files. "
-        "Please check that you uploaded a Report-27 Bill Flags export from EnergyCAP."
-    )
+    st.warning("No bill records found in the uploaded files. "
+               "Please check that you uploaded a Report-27 Bill Flags export from EnergyCAP.")
     st.stop()
 
 has_usage  = "total_kwh_equivalent" in df_master.columns and df_master["total_kwh_equivalent"].notna().any()
-has_setup  = not df_setup.empty
 all_vendors = sorted(df_master["vendor"].unique())
 if not vendor_filter:
     vendor_filter = all_vendors
 
-# Apply global filters
 df = df_master.copy()
 if status_filter:   df = df[df["status"].isin(status_filter)]
 if vendor_filter:   df = df[df["vendor"].isin(vendor_filter)]
@@ -426,7 +387,6 @@ if df.empty:
     st.warning("No records match the current filters.")
     st.stop()
 
-# Derived aggregates
 issues_exp = (df.explode("issues_list").rename(columns={"issues_list":"issue"})
                .query("issue.notna() and issue != ''"))
 issue_counts  = Counter(issues_exp["issue"].tolist())
@@ -435,7 +395,6 @@ period_counts = (df[df["billing_period_label"].notna()]
                  .groupby("billing_period_label").size().sort_index().to_dict())
 assignee_rows = [a.strip() for _,r in df.iterrows()
                  for a in str(r["assigned_to"]).split(",") if a.strip()]
-resolver_rows = [r for _,row in df.iterrows() for r in row["resolvers"]]
 all_assignees = sorted(set(assignee_rows))
 all_issues    = sorted(issue_counts.keys())
 
@@ -464,25 +423,21 @@ t_overview, t_flags, t_vendors, t_ghg, t_actions, t_detail = st.tabs([
 # ── TAB 1: OVERVIEW ──────────────────────────────────────────────────────────
 with t_overview:
     st.subheader("Summary")
-    cols = st.columns(6)
-    metrics = [
-        ("Total flagged bills",   str(total_bills),
-         f"{resolved_ct} resolved · {unresolved_ct} open","#212529"),
-        ("Resolution rate",       f"{resolution_rate:.0f}%",
-         f"{resolved_ct} of {total_bills}",
-         "#198754" if resolution_rate>=90 else "#fd7e14"),
-        ("Total bill value",      f"${total_cost:,.0f}","Under review","#212529"),
-        ("Cost recovered",        f"${total_recovery:,.0f}","Tracked savings","#198754"),
-        ("GHG bills w/ usage",
-         str(ghg_bills_ct) if has_usage else "—",
-         f"{total_kwh/1e6:,.1f}M kWh equiv." if has_usage else "Upload Report-18","#6f42c1"),
-        ("High-priority open",    str(hp_open),"Need immediate action",
-         "#dc3545" if hp_open>0 else "#198754"),
-    ]
-    for col,(label,val,sub,color) in zip(cols,metrics):
-        col.markdown(metric_html(label,val,sub,color),unsafe_allow_html=True)
-    st.markdown("")
+    c1,c2,c3,c4,c5,c6 = st.columns(6)
+    c1.metric("Total flagged bills", total_bills,
+              help=f"{resolved_ct} resolved · {unresolved_ct} open")
+    c2.metric("Resolution rate", f"{resolution_rate:.0f}%",
+              delta=f"{resolved_ct} of {total_bills} resolved")
+    c3.metric("Total bill value", f"${total_cost:,.0f}")
+    c4.metric("Cost recovered", f"${total_recovery:,.0f}")
+    c5.metric("GHG bills w/ usage",
+              str(ghg_bills_ct) if has_usage else "—",
+              help=f"{total_kwh/1e6:,.1f}M kWh equiv." if has_usage else "Upload Report-18")
+    c6.metric("High-priority open", hp_open,
+              delta=f"{'need action' if hp_open else 'all clear'}",
+              delta_color="inverse" if hp_open else "normal")
 
+    st.divider()
     col1,col2 = st.columns([3,2])
     with col1:
         top12 = dict(sorted(issue_counts.items(),key=lambda x:-x[1])[:12])
@@ -493,8 +448,8 @@ with t_overview:
                                    text=list(top12.values()),textposition="outside",
                                    hovertemplate="%{y}: %{x}<extra></extra>"))
         fig_iss.update_layout(title="Flag issues — click to drill",yaxis_autorange="reversed",
-                              xaxis=dict(showgrid=True,gridcolor="#f0f0f0"),
-                              height=400,margin=dict(l=10,r=50,t=40,b=10),
+                              xaxis=dict(showgrid=True,gridcolor="#f0f0f0"),height=400,
+                              margin=dict(l=10,r=50,t=40,b=10),
                               showlegend=False,clickmode="event+select",**PT)
         ev1 = st.plotly_chart(fig_iss,use_container_width=True,on_select="rerun",key="ov_issues")
         ci = extract_click(ev1)
@@ -504,8 +459,8 @@ with t_overview:
     with col2:
         if period_counts:
             ev2 = st.plotly_chart(
-                bar_v(period_counts,"Bills by billing period",color="#0d6efd",height=400,
-                      highlight=st.session_state.drill_period),
+                bar_v(period_counts,"Bills by billing period — click to drill",
+                      color="#0d6efd",height=400,highlight=st.session_state.drill_period),
                 use_container_width=True,on_select="rerun",key="ov_period")
             cp = extract_click(ev2)
             if cp and cp in period_counts:
@@ -515,19 +470,19 @@ with t_overview:
     if st.session_state.drill_issue and st.session_state.active_tab=="overview":
         di = st.session_state.drill_issue
         drill_banner(f"Issue: {di}","drill_issue")
-        sub = df[df["issues_list"].apply(lambda lst: di in lst)]
         m = FLAG_META.get(di,{})
         if m:
-            with st.expander(f"📖 About: {di}",expanded=False):
-                st.markdown(f"**Cause:** {m['cause']}")
-                st.markdown(f"**Action:** {m['action']}")
-        render_bill_cards(sub.sort_values("cost",ascending=False))
+            with st.expander(f"📖 About: {di}"):
+                st.write(f"**Cause:** {m['cause']}")
+                st.write(f"**Action:** {m['action']}")
+        render_bill_cards(df[df["issues_list"].apply(lambda l: di in l)].sort_values("cost",ascending=False))
 
     if st.session_state.drill_period and st.session_state.active_tab=="overview":
         dp = st.session_state.drill_period
         drill_banner(f"Period: {dp}","drill_period")
         render_bill_cards(df[df["billing_period_label"]==dp].sort_values("cost",ascending=False))
 
+    st.divider()
     c3,c4,c5 = st.columns(3)
     with c3:
         cat_ct = (issues_exp["issue"]
@@ -561,33 +516,33 @@ with t_overview:
 with t_flags:
     st.subheader("Flag Analysis")
 
-    with st.expander("🔽 Filter flags",expanded=True):
+    with st.expander("🔽 Filter flags", expanded=True):
         fc1,fc2,fc3 = st.columns(3)
         with fc1:
-            ft_issues = st.multiselect("Flag issue type",all_issues,
+            ft_issues = st.multiselect("Flag issue type", all_issues,
                                        default=st.session_state.ft_issues,
-                                       placeholder="All issues",key="ft_issues_w")
-            ft_status = st.multiselect("Status",["Resolved","Unresolved"],
-                                       default=st.session_state.ft_status,key="ft_status_w")
+                                       placeholder="All issues", key="ft_issues_w")
+            ft_status = st.multiselect("Status", ["Resolved","Unresolved"],
+                                       default=st.session_state.ft_status, key="ft_status_w")
         with fc2:
-            ft_vendors = st.multiselect("Vendor",all_vendors,
+            ft_vendors = st.multiselect("Vendor", all_vendors,
                                         default=st.session_state.ft_vendors,
-                                        placeholder="All vendors",key="ft_vendors_w")
-            ft_priority = st.multiselect("Priority",["High","Medium","Low"],
-                                         default=st.session_state.ft_priority,key="ft_pri_w")
+                                        placeholder="All vendors", key="ft_vendors_w")
+            ft_priority = st.multiselect("Priority", ["High","Medium","Low"],
+                                         default=st.session_state.ft_priority, key="ft_pri_w")
         with fc3:
-            ft_assignees = st.multiselect("Assignee",all_assignees,
+            ft_assignees = st.multiselect("Assignee", all_assignees,
                                           default=st.session_state.ft_assignees,
-                                          placeholder="All assignees",key="ft_assign_w")
+                                          placeholder="All assignees", key="ft_assign_w")
             ghg_cats_avail = []
             if has_usage:
                 ghg_cats_avail = sorted([g for g in df["ghg_category"].dropna().unique() if g])
-                ft_ghg = st.multiselect("GHG category",ghg_cats_avail,
+                ft_ghg = st.multiselect("GHG category", ghg_cats_avail,
                                         default=st.session_state.ft_ghg_cat,
-                                        placeholder="All commodities",key="ft_ghg_w")
+                                        placeholder="All commodities", key="ft_ghg_w")
             else:
                 ft_ghg = []
-            ft_sort = st.selectbox("Sort bills by",SORT_OPTS,
+            ft_sort = st.selectbox("Sort bills by", SORT_OPTS,
                                    index=SORT_OPTS.index(st.session_state.ft_sort),
                                    key="ft_sort_w")
 
@@ -601,7 +556,7 @@ with t_flags:
 
         _,rb = st.columns([8,2])
         with rb:
-            if st.button("↺ Reset all filters",use_container_width=True):
+            if st.button("↺ Reset all filters", use_container_width=True):
                 for k in ["ft_issues","ft_vendors","ft_assignees","ft_ghg_cat"]:
                     st.session_state[k] = []
                 st.session_state.ft_status   = ["Resolved","Unresolved"]
@@ -611,18 +566,16 @@ with t_flags:
 
     fdf = df.copy()
     if ft_issues:
-        fdf = fdf[fdf["issues_list"].apply(lambda lst: any(i in lst for i in ft_issues))]
+        fdf = fdf[fdf["issues_list"].apply(lambda l: any(i in l for i in ft_issues))]
     if ft_vendors:   fdf = fdf[fdf["vendor"].isin(ft_vendors)]
     if ft_status:    fdf = fdf[fdf["status"].isin(ft_status)]
     if ft_priority:  fdf = fdf[fdf["primary_priority"].isin(ft_priority)]
     if ft_assignees:
-        fdf = fdf[fdf["assigned_to"].apply(
-            lambda a: any(x.strip() in str(a) for x in ft_assignees))]
+        fdf = fdf[fdf["assigned_to"].apply(lambda a: any(x.strip() in str(a) for x in ft_assignees))]
     if ft_ghg and has_usage:
         fdf = fdf[fdf["ghg_category"].isin(ft_ghg)]
     sc_f,sa_f = SORT_MAP[ft_sort]
     fdf = fdf.sort_values(sc_f,ascending=sa_f,na_position="last")
-
     fi_exp = (fdf.explode("issues_list").rename(columns={"issues_list":"issue"})
                .query("issue.notna() and issue != ''"))
 
@@ -682,18 +635,19 @@ with t_flags:
     if st.session_state.drill_issue and st.session_state.active_tab=="flags":
         di = st.session_state.drill_issue
         drill_banner(f"Issue: {di}","drill_issue")
-        sub = fdf[fdf["issues_list"].apply(lambda lst: di in lst)]
         m = FLAG_META.get(di,{})
         if m:
-            with st.expander(f"📖 About: {di}",expanded=False):
-                st.markdown(f"**Cause:** {m['cause']}")
-                st.markdown(f"**Action:** {m['action']}")
-                st.markdown(f"**In EnergyCAP:** {m['in_energycap']}")
-        render_bill_cards(sub)
+            with st.expander(f"📖 About: {di}"):
+                st.write(f"**Cause:** {m['cause']}")
+                st.write(f"**Action:** {m['action']}")
+                st.write(f"**In EnergyCAP:** {m['in_energycap']}")
+        render_bill_cards(fdf[fdf["issues_list"].apply(lambda l: di in l)])
+
     if st.session_state.drill_vendor and st.session_state.active_tab=="flags":
         dv = st.session_state.drill_vendor
         drill_banner(f"Vendor: {dv}","drill_vendor")
         render_bill_cards(fdf[fdf["vendor"]==dv])
+
     if st.session_state.drill_assignee and st.session_state.active_tab=="flags":
         da = st.session_state.drill_assignee
         drill_banner(f"Assignee: {da}","drill_assignee")
@@ -709,14 +663,13 @@ with t_flags:
     disp = fdf[_sc].copy().rename(columns=_dc)
     disp["Cost ($)"] = disp["Cost ($)"].map("${:,.2f}".format)
     if "kWh Equiv." in disp.columns:
-        disp["kWh Equiv."] = disp["kWh Equiv."].apply(
-            lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
+        disp["kWh Equiv."] = disp["kWh Equiv."].apply(lambda x: f"{x:,.0f}" if pd.notna(x) else "—")
     disp["Days"] = disp["Days"].apply(lambda x: f"{int(x)}d" if pd.notna(x) else "—")
     tbl = st.dataframe(disp,use_container_width=True,hide_index=True,height=380,
                        on_select="rerun",selection_mode="single-row",key="flags_table")
     sel = tbl.get("selection",{}).get("rows",[]) if tbl else []
     if sel:
-        st.markdown("---")
+        st.divider()
         bill_detail_panel(fdf.iloc[sel[0]])
     buf = io.StringIO(); disp.to_csv(buf,index=False)
     st.download_button("⬇ Download as CSV",buf.getvalue(),"bill_flags.csv","text/csv")
@@ -753,9 +706,9 @@ with t_vendors:
         vdf_i = (vdf.explode("issues_list").rename(columns={"issues_list":"issue"})
                  .query("issue.notna() and issue != ''"))
         vc1,vc2,vc3,vc4 = st.columns(4)
-        vc1.metric("Bills",      len(vdf))
-        vc2.metric("Unresolved", (vdf["status"]=="Unresolved").sum())
-        vc3.metric("Total cost", f"${vdf['cost'].sum():,.0f}")
+        vc1.metric("Bills",         len(vdf))
+        vc2.metric("Unresolved",    (vdf["status"]=="Unresolved").sum())
+        vc3.metric("Total cost",    f"${vdf['cost'].sum():,.0f}")
         vc4.metric("Unique issues", vdf_i["issue"].nunique())
         v2a,v2b = st.columns(2)
         with v2a:
@@ -768,7 +721,7 @@ with t_vendors:
             vp_ct = (vdf[vdf["billing_period_label"].notna()]
                      .groupby("billing_period_label").size().sort_index().to_dict())
             if vp_ct:
-                st.plotly_chart(bar_v(vp_ct,f"Bills by period",color="#0d6efd",height=300),
+                st.plotly_chart(bar_v(vp_ct,"Bills by period",color="#0d6efd",height=300),
                                 use_container_width=True)
         render_bill_cards(vdf.sort_values("cost",ascending=False))
 
@@ -778,7 +731,7 @@ with t_vendors:
                .agg(bills=("bill_id","count"),
                     unresolved=("status",lambda x:(x=="Unresolved").sum()),
                     total_cost=("cost","sum"),
-                    unique_issues=("issues_list",lambda x:len(set(i for lst in x for i in lst))))
+                    unique_issues=("issues_list",lambda x:len(set(i for l in x for i in l))))
                .sort_values("bills",ascending=False).reset_index())
     vsumm.columns = ["Vendor","Bills","Unresolved","Total Cost ($)","Unique Issue Types"]
     vsumm["Total Cost ($)"] = vsumm["Total Cost ($)"].map("${:,.0f}".format)
@@ -804,7 +757,8 @@ with t_ghg:
             ghg_status = st.multiselect("Status",["Resolved","Unresolved"],
                                          default=["Resolved","Unresolved"],key="ghq_status")
         with cc:
-            st.caption("Bills ranked by: Usage (kWh equiv.) × Flag risk × Unresolved multiplier")
+            st.caption("Score = Usage (kWh equiv.) × Flag risk (High=3, Med=2, Low=1) × "
+                       "Status multiplier (Unresolved=3×, Resolved=1×)")
 
         ghg_df = df[df["total_kwh_equivalent"].notna()].copy()
         if ghg_status:
@@ -864,12 +818,11 @@ with t_ghg:
             pq[f"Usage ({disp_unit})"] = pq[f"Usage ({disp_unit})"].apply(lambda x: f"{x:,.1f}")
             pq["Cost ($)"] = pq["Cost ($)"].map("${:,.2f}".format)
             pq["Score"]    = pq["Score"].apply(lambda x: f"{x:,.0f}")
-            pq_sel = st.dataframe(pq,use_container_width=True,hide_index=True,
-                                  height=480,on_select="rerun",
-                                  selection_mode="single-row",key="pq_table")
+            pq_sel = st.dataframe(pq,use_container_width=True,hide_index=True,height=480,
+                                  on_select="rerun",selection_mode="single-row",key="pq_table")
             pq_rows = pq_sel.get("selection",{}).get("rows",[]) if pq_sel else []
             if pq_rows:
-                st.markdown("---")
+                st.divider()
                 bill_detail_panel(ghg_df.iloc[pq_rows[0]])
             buf2 = io.StringIO(); pq.to_csv(buf2,index=False)
             st.download_button("⬇ Download priority queue CSV",
@@ -879,19 +832,19 @@ with t_ghg:
 # ── TAB 5: ACTION GUIDE ──────────────────────────────────────────────────────
 with t_actions:
     st.subheader("Actionable Insights & Recommended Next Steps")
+
     open_df = df[df["status"]=="Unresolved"]
     if not open_df.empty:
         st.markdown("### 🔴 Open / Unresolved Flags")
         for _,row in open_df.iterrows():
-            p   = row["primary_priority"]
-            css = {"High":"action-high","Medium":"action-medium","Low":"action-low"}.get(p,"action-info")
-            bc  = {"High":"red","Medium":"orange","Low":"green"}.get(p,"blue")
-            badges = " ".join(badge(i,bc) for i in row["issues_list"])
-            st.markdown(f"""<div class="action-card {css}">
-                <strong>Bill {row['bill_id']} — {row['vendor']}</strong>
-                &nbsp;|&nbsp; ${row['cost']:,.2f}
-                &nbsp;|&nbsp; Assigned: {row.get('assigned_to','—') or '—'}<br>{badges}
-            </div>""", unsafe_allow_html=True)
+            with st.container(border=True):
+                h1,h2 = st.columns([4,1])
+                with h1:
+                    st.markdown(f"**Bill {row['bill_id']} — {row['vendor']}**")
+                with h2:
+                    st.markdown(f"**${row['cost']:,.2f}**")
+                st.caption(f"Assigned: {row.get('assigned_to','—') or '—'}")
+                issue_badges(row["issues_list"])
         st.divider()
 
     sorted_issues = sorted(
@@ -904,56 +857,41 @@ with t_actions:
         if cat not in seen_cats:
             seen_cats.add(cat)
             st.markdown(f"### {cat}")
-        p   = meta["priority"]
-        css = {"High":"action-high","Medium":"action-medium","Low":"action-low"}.get(p,"action-info")
-        bc  = {"High":"red","Medium":"orange","Low":"green"}.get(p,"blue")
-        ib  = issues_exp[issues_exp["issue"]==issue]
-        unr = (ib["status"]=="Unresolved").sum()
-        topv= ib["vendor"].value_counts().idxmax() if not ib.empty else "—"
-        unr_html = f'&nbsp;{badge("⚠ "+str(unr)+" unresolved","red")}' if unr else ""
-        with st.container():
-            st.markdown(f"""<div class="action-card {css}">
-                <div style="display:flex;justify-content:space-between;">
-                    <div><strong>{issue}</strong>&nbsp;{badge(p,bc)}&nbsp;{badge(str(cnt)+" occ","gray")}{unr_html}</div>
-                    <div style="font-size:12px;color:#6c757d">Top vendor: {topv}</div>
-                </div>
-                <p style="margin:8px 0 4px;font-size:13px;color:#555"><em>{meta['cause']}</em></p>
-                <p style="margin:4px 0 2px;font-size:13px"><strong>Action:</strong> {meta['action']}</p>
-                <p style="margin:2px 0 0;font-size:12px;color:#6c757d"><strong>In EnergyCAP:</strong> {meta['in_energycap']}</p>
-            </div>""", unsafe_allow_html=True)
-            matching = df[df["issues_list"].apply(lambda lst: issue in lst)]
-            with st.expander(f"Show {len(matching)} bill(s) with this issue"):
-                render_bill_cards(matching.sort_values("cost",ascending=False))
+        ib   = issues_exp[issues_exp["issue"]==issue]
+        unr  = (ib["status"]=="Unresolved").sum()
+        topv = ib["vendor"].value_counts().idxmax() if not ib.empty else "—"
+        action_card(
+            priority=meta["priority"], title=issue,
+            cause=meta["cause"], action=meta["action"],
+            in_energycap=meta["in_energycap"],
+            count=cnt, top_vendor=topv, unresolved=unr,
+        )
+        matching = df[df["issues_list"].apply(lambda l: issue in l)]
+        with st.expander(f"Show {len(matching)} bill(s) with this issue"):
+            render_bill_cards(matching.sort_values("cost",ascending=False))
 
     st.divider()
     st.markdown("### 💡 Systemic Observations")
-    insights = []
     rs = issue_counts.get("Rate schedule mismatch",0)
     sn = issue_counts.get("Serial number mismatch",0)
     if rs+sn > total_bills*0.4:
-        insights.append(("action-info","High volume of import/configuration mismatches",
-            f"{rs} rate schedule + {sn} serial number mismatches. "
-            "Consider a bulk meter configuration update rather than resolving bill-by-bill."))
+        st.info(f"**High volume of import/configuration mismatches** — {rs} rate schedule + "
+                f"{sn} serial number mismatches ({(rs+sn)/total_bills*100:.0f}% of occurrences). "
+                "Consider a bulk meter configuration update rather than resolving bill-by-bill.")
     dup = (issue_counts.get("Duplicate bill",0)+issue_counts.get("Overlapping bill",0)
            +issue_counts.get("Multiple bills in period",0))
-    if dup > 0:
-        insights.append(("action-high",f"Potential duplicate payments — {dup} flags",
-            "Verify each before releasing to AP. Cross-reference with your payment system."))
+    if dup:
+        st.error(f"**Potential duplicate payments — {dup} overlap/duplicate flags.** "
+                 "Verify each before releasing to AP.")
     if vendor_counts:
         topvn = max(vendor_counts,key=vendor_counts.get)
         topvp = vendor_counts[topvn]/total_bills*100
         if topvp>20:
-            insights.append(("action-medium",f"High concentration: {topvn} ({topvp:.0f}%)",
-                f"{topvn} is disproportionately represented. Review import template and meter mappings."))
+            st.warning(f"**High concentration: {topvn} ({topvp:.0f}% of flagged bills).** "
+                       "Review import template and meter mappings for this vendor.")
     if total_recovery==0 and total_bills>10:
-        insights.append(("action-info","No cost recovery tracked ($0.00)",
-            "Log Cost Recovery in EnergyCAP when billing errors are corrected to track savings."))
-    for css,title,body in insights:
-        st.markdown(f'<div class="action-card {css}"><strong>{title}</strong>'
-                    f'<p style="margin:6px 0 0;font-size:13px">{body}</p></div>',
-                    unsafe_allow_html=True)
-    if not insights:
-        st.success("No major systemic issues detected.")
+        st.info("**No cost recovery tracked ($0.00).** Log Cost Recovery in EnergyCAP "
+                "when billing errors are corrected to track savings ROI.")
 
 
 # ── TAB 6: BILL DETAIL ───────────────────────────────────────────────────────
@@ -970,7 +908,7 @@ with t_detail:
         ddf = ddf[ddf["bill_id"].str.contains(search,case=False)|
                   ddf["account"].str.contains(search,case=False,na=False)]
     if issue_f:
-        ddf = ddf[ddf["issues_list"].apply(lambda lst: any(i in lst for i in issue_f))]
+        ddf = ddf[ddf["issues_list"].apply(lambda l: any(i in l for i in issue_f))]
     if vendor_f: ddf = ddf[ddf["vendor"].isin(vendor_f)]
     dsc,dsa = SORT_MAP[det_sort]
     ddf = ddf.sort_values(dsc,ascending=dsa,na_position="last")
@@ -994,7 +932,7 @@ with t_detail:
                         on_select="rerun",selection_mode="single-row",key="detail_table")
     sel2 = tbl2.get("selection",{}).get("rows",[]) if tbl2 else []
     if sel2:
-        st.markdown("---")
+        st.divider()
         bill_detail_panel(ddf.iloc[sel2[0]])
     buf3 = io.StringIO(); disp2.to_csv(buf3,index=False)
     st.download_button("⬇ Download as CSV",buf3.getvalue(),"bill_detail.csv","text/csv")
